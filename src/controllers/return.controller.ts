@@ -1,102 +1,123 @@
 import { Request, Response } from "express";
 import prisma from "../db/prisma";
+import { shopifyRequest } from "../utils/shopifyClient";
 
-export const syncOrder = async (req: Request, res: Response) => {
+export const verifyOrder = async (req: Request, res: Response) => {
   try {
-    const {
-      id,
-      orderNumber,
-      customerEmail,
-      totalPrice,
-      currencyCode,
-      line_items,
-    } = req.body;
-    console.log("====================================");
-    console.log("req.body", req.body);
-    console.log("====================================");
-    const order = await (prisma as any).order.upsert({
-      where: { id: id },
-      update: {
-        customerEmail,
-        totalPrice,
-      },
-      create: {
-        id,
-        orderNumber,
-        customerEmail,
-        totalPrice,
-        currencyCode,
-        lineItems: {
-          create: line_items.map((item: any) => ({
-            id: item.admin_graphql_api_id,
-            productId: `gid://shopify/Product/${item.product_id}`,
-            variantId: `gid://shopify/ProductVariant/${item.variant_id}`,
-            title: item.title,
-            variantTitle: item.variant_title,
-            quantity: item.quantity,
-            price: item.price,
-            sku: item.sku,
-          })),
+    const { shop, orderName, email } = req.body;
+
+    const store = await (prisma as any).store.findUnique({ where: { shop } });
+    if (!store) {
+      return res.status(404).json({ message: "Store not found" });
+    }
+
+    const shopify = shopifyRequest(store.shop, store.accessToken);
+
+    const { data } = await shopify.get("/orders.json", {
+      params: { name: orderName, status: "any" },
+    });
+
+    const order = data.orders?.[0];
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (order.email?.toLowerCase() !== email.toLowerCase()) {
+      return res.status(400).json({ message: "Email does not match" });
+    }
+
+    if (order.financial_status !== "paid") {
+      return res.status(400).json({ message: "Order is not paid" });
+    }
+
+    if (order.fulfillment_status !== "fulfilled") {
+      return res.status(400).json({ message: "Order is not fulfilled" });
+    }
+
+    res.status(200).json({
+      verified: true,
+      order,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Order verification failed" });
+  }
+};
+
+export const createReturnRequest = async (req: Request, res: Response) => {
+  try {
+    const { shop, orderId, orderName, email, items } = req.body;
+
+    const store = await (prisma as any).store.findUnique({ where: { shop } });
+    if (!store) {
+      return res.status(404).json({ message: "Store not found" });
+    }
+
+    const existing = await (prisma as any).returnRequest.findUnique({
+      where: {
+        orderId_storeId: {
+          orderId,
+          storeId: store.id,
         },
       },
     });
 
-    res.status(200).json({ message: "Order and items synced", order });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Sync failed" });
-  }
-};
+    if (existing) {
+      return res.status(400).json({
+        message: "Return request already exists for this order",
+      });
+    }
 
-export const createReturn = async (req: Request, res: Response) => {
-  try {
-    const { orderId, reason, items } = req.body;
-
-    const newReturn = await (prisma as any).return.create({
+    const returnRequest = await (prisma as any).returnRequest.create({
       data: {
-        orderId: orderId,
-        reason: reason,
-        status: "REQUESTED",
+        orderId,
+        orderName,
+        email,
+        storeId: store.id,
         items: {
           create: items.map((item: any) => ({
             productId: item.productId,
-            variantId: item.variantId,
+            variantId: item.variantId ?? null,
+            title: item.title,
             quantity: item.quantity,
-            name: item.name,
-            sku: item.sku,
           })),
         },
       },
-      include: {
-        items: true,
-      },
+      include: { items: true },
     });
 
-    res.status(201).json(newReturn);
-  } catch (error) {
-    res.status(500).json({ error: "Could not create return request" });
+    res.status(201).json(returnRequest);
+  } catch {
+    res.status(500).json({ message: "Failed to create return request" });
   }
 };
 
-export const getReturnDetails = async (req: Request, res: Response) => {
+export const getReturnByOrderId = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { shop, orderId } = req.params;
 
-    const returnRequest = await (prisma as any).return.findUnique({
-      where: { id },
-      include: {
-        items: true,
-        order: true,
+    const store = await (prisma as any).store.findUnique({ where: { shop } });
+    if (!store) {
+      return res.status(404).json({ message: "Store not found" });
+    }
+
+    const returnRequest = await (prisma as any).returnRequest.findUnique({
+      where: {
+        orderId_storeId: {
+          orderId,
+          storeId: store.id,
+        },
       },
+      include: { items: true },
     });
 
     if (!returnRequest) {
-      return res.status(404).json({ error: "Return request not found" });
+      return res.status(404).json({ message: "Return not found" });
     }
 
     res.json(returnRequest);
-  } catch (error) {
-    res.status(500).json({ error: "Error fetching return details" });
+  } catch {
+    res.status(500).json({ message: "Failed to fetch return" });
   }
 };
 
@@ -105,13 +126,14 @@ export const updateReturnStatus = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const updatedReturn = await (prisma as any).return.update({
+    const updated = await (prisma as any).returnRequest.update({
       where: { id },
       data: { status },
+      include: { items: true },
     });
 
-    res.json(updatedReturn);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to update status" });
+    res.json(updated);
+  } catch {
+    res.status(500).json({ message: "Failed to update status" });
   }
 };

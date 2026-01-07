@@ -13,59 +13,49 @@ datasource db {
   provider = "postgresql"
 }
 
-model Order {
-  id            String   @id
-  orderNumber   String   @unique
-  customerEmail String?
-  totalPrice    Decimal
-  currencyCode  String
-  createdAt     DateTime @default(now())
+model Store {
+  id          String @id @default(uuid())
+  shop        String @unique
+  accessToken String
 
-  lineItems OrderLineItem[]
-  returns   Return[]
+  returns ReturnRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
-model OrderLineItem {
-  id      String @id
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id])
-
-  productId    String
-  variantId    String
-  title        String
-  variantTitle String?
-  quantity     Int
-  price        Decimal
-  sku          String?
-}
-
-model Return {
+model ReturnRequest {
   id        String       @id @default(uuid())
-  shopifyId String?      @unique
   orderId   String
-  order     Order        @relation(fields: [orderId], references: [id])
+  orderName String
+  email     String
   status    ReturnStatus @default(REQUESTED)
-  reason    String?
-  items     ReturnItem[]
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  items ReturnItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orderId, storeId])
+  @@index([orderName])
 }
 
 model ReturnItem {
   id        String  @id @default(uuid())
   returnId  String
-  return    Return  @relation(fields: [returnId], references: [id])
   productId String
-  variantId String
+  variantId String?
+  title     String
   quantity  Int
-  name      String
-  sku       String?
+
+  returnRequest ReturnRequest @relation(fields: [returnId], references: [id], onDelete: Cascade)
 }
 
 enum ReturnStatus {
   REQUESTED
   APPROVED
   DECLINED
-  CANCELLED
-  COMPLETED
 }
