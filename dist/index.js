@@ -7,14 +7,14 @@ const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const cors_1 = __importDefault(require("cors"));
 const return_routes_1 = __importDefault(require("./routes/return.routes"));
-const admin_routes_1 = __importDefault(require("./routes/admin.routes"));
+const store_routes_1 = __importDefault(require("./routes/store.routes"));
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const baseUrl = "api";
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
-app.use(`${baseUrl}/return`, return_routes_1.default);
-app.use(`${baseUrl}/admin`, admin_routes_1.default);
+app.use("/api/store", store_routes_1.default);
+app.use("/api/returns", return_routes_1.default);
 app.get("/", (_, res) => {
     return res.status(200).json("Server is running");
 });
