@@ -1,0 +1,71 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Order {
+  id            String   @id
+  orderNumber   String   @unique
+  customerEmail String?
+  totalPrice    Decimal
+  currencyCode  String
+  createdAt     DateTime @default(now())
+
+  lineItems OrderLineItem[]
+  returns   Return[]
+}
+
+model OrderLineItem {
+  id      String @id
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  productId    String
+  variantId    String
+  title        String
+  variantTitle String?
+  quantity     Int
+  price        Decimal
+  sku          String?
+}
+
+model Return {
+  id        String       @id @default(uuid())
+  shopifyId String?      @unique
+  orderId   String
+  order     Order        @relation(fields: [orderId], references: [id])
+  status    ReturnStatus @default(REQUESTED)
+  reason    String?
+  items     ReturnItem[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model ReturnItem {
+  id        String  @id @default(uuid())
+  returnId  String
+  return    Return  @relation(fields: [returnId], references: [id])
+  productId String
+  variantId String
+  quantity  Int
+  name      String
+  sku       String?
+}
+
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  DECLINED
+  CANCELLED
+  COMPLETED
+}
